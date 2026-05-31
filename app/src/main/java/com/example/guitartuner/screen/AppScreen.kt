@@ -23,7 +23,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -47,7 +46,9 @@ import com.example.guitartuner.component.AppIconButton
 import com.example.guitartuner.component.AppModalBottomSheet
 import com.example.guitartuner.component.AppPermission
 import com.example.guitartuner.component.AppScaffold
+import com.example.guitartuner.component.AppSettingsToggle
 import com.example.guitartuner.component.AppText
+import com.example.guitartuner.model.TunerScreenEvent
 import com.example.guitartuner.model.tuningModesList
 import com.example.guitartuner.viewmodel.TunerViewModel
 
@@ -58,6 +59,7 @@ fun AppScreen(vm : TunerViewModel = viewModel()) {
         topBarTitle = stringResource(R.string.app_name)
     ) {
         AppPermission {
+            val state = vm.screenState
             val currentHz by vm.frequency.collectAsState()
 
             LaunchedEffect(Unit) { vm.startTuner() }
@@ -83,7 +85,7 @@ fun AppScreen(vm : TunerViewModel = viewModel()) {
                     AppText(
                         modifier = Modifier
                             .padding(bottom = 5.dp),
-                        text = vm.tuningModeName,
+                        text = state.tuningModeName,
                         style = MaterialTheme.typography.headlineLarge,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary
@@ -92,7 +94,7 @@ fun AppScreen(vm : TunerViewModel = viewModel()) {
                     AppIconButton(
                         icon = Icons.Filled.MoreVert,
                         contentDescription = "Tuning Options",
-                        onClick = { vm.onClickBottomSheet() },
+                        onClick = { vm.onEvent(TunerScreenEvent.TuningOptionsToggled) },
                         colors = IconButtonDefaults.filledIconButtonColors(
                             containerColor = Color.Transparent,
                             contentColor = MaterialTheme.colorScheme.onSurface
@@ -102,7 +104,14 @@ fun AppScreen(vm : TunerViewModel = viewModel()) {
                 }
                 TurnerNeedle(
                     currentHz = currentHz,
-                    targetHz = vm.targetPitch
+                    targetHz = state.targetPitch
+                )
+                AppSettingsToggle(
+                    modifier = Modifier
+                        .padding(top = 4.dp),
+                    text = if (state.isAutoMode) "Automatic" else "Manual",
+                    checked = state.isAutoMode,
+                    onCheckedChange = { vm.onEvent(TunerScreenEvent.ToggleAutoModeClicked) }
                 )
                 Spacer(modifier = Modifier.weight(1f))
                 Box(
@@ -146,19 +155,19 @@ fun AppScreen(vm : TunerViewModel = viewModel()) {
                             shape = CircleShape,
                             textStyle = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
-                            onClick = { vm.onClick(i) },
-                            text = vm.myStringNames[i-1],
+                            onClick = { vm.onEvent(TunerScreenEvent.TargetStringSelected(i)) },
+                            text = state.stringNames[i-1],
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = if (vm.selectedButtonId != i) Color.Transparent else MaterialTheme.colorScheme.primary,
-                                contentColor = if (vm.selectedButtonId != i) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onPrimary
+                                containerColor = if (state.selectedButtonId != i) Color.Transparent else MaterialTheme.colorScheme.primary,
+                                contentColor = if (state.selectedButtonId != i) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onPrimary
                             )
                         )
                     }
                 }
 
                 AppModalBottomSheet(
-                    showSheet = vm.showOptionsSheet,
-                    onDismissRequest = { vm.onClickBottomSheet() },
+                    showSheet = state.showOptionsSheet,
+                    onDismissRequest = { vm.onEvent(TunerScreenEvent.TuningOptionsToggled) },
                     title = "Select tuning Mode"
                 ) {
                     for(i in 0..<tuningModesList.size) {
@@ -168,7 +177,7 @@ fun AppScreen(vm : TunerViewModel = viewModel()) {
                                 .height(60.dp)
                                 .padding(vertical = 2.dp),
                             text = tuningModesList[i].name,
-                            onClick = { vm.changeMode(i) },
+                            onClick = { vm.onEvent(TunerScreenEvent.TuningModeSelected(i)) },
                             colors = ButtonDefaults.buttonColors(
                                 contentColor = MaterialTheme.colorScheme.onSurface,
                                 containerColor = Color.Transparent
@@ -254,24 +263,46 @@ fun TurnerNeedle (
             )
         }
 
-        androidx.compose.material3.Icon(
-            painter = painterResource(R.drawable.arrow_up),
-            contentDescription = "Needle",
-            tint = if (text == stringResource(R.string.in_tune)) {
-                Color(0xFF4CAF50)
-            } else if (currentHz < targetHz-200 || currentHz > targetHz+200) {
-                MaterialTheme.colorScheme.surface
-            } else {
-                Color(0xFFFF5722)
-            },
-            modifier = Modifier
-                .size(48.dp)
-                .align(
-                    BiasAlignment(
-                        horizontalBias = animatedBias,
-                        verticalBias = 0f
-                    )
+        Box(
+            modifier = Modifier.align(
+                BiasAlignment(
+                    horizontalBias = animatedBias,
+                    verticalBias = 0.1f
                 )
-        )
+            ),
+            contentAlignment = Alignment.TopCenter
+        ) {
+            androidx.compose.material3.Icon(
+                painter = painterResource(R.drawable.arrow_up),
+                contentDescription = "Needle",
+                tint = if (text == stringResource(R.string.in_tune)) {
+                    Color(0xFF4CAF50)
+                } else if (currentHz < targetHz - 200 || currentHz > targetHz + 200) {
+                    MaterialTheme.colorScheme.surface
+                } else {
+                    Color(0xFFFF5722)
+                },
+                modifier = Modifier.size(50.dp)
+            )
+
+            if (rawBias > -1f && rawBias < 1f && rawBias != 0f) {
+                val formattedBias = String.format("%.1f", rawBias)
+
+                AppText(
+                    text = formattedBias,
+                    fontWeight = FontWeight.Bold,
+                    color = if (text == stringResource(R.string.in_tune)) {
+                        MaterialTheme.colorScheme.surface
+                    } else if (currentHz < targetHz - 200 || currentHz > targetHz + 200) {
+                        MaterialTheme.colorScheme.onSurface
+                    } else {
+                        MaterialTheme.colorScheme.surface
+                    },
+                    modifier = Modifier
+                        .padding(10.dp)
+                        .align(Alignment.BottomCenter)
+                )
+            }
+        }
     }
 }
